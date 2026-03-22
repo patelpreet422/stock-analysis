@@ -24,13 +24,16 @@ Install required Python packages in the project venv:
 
 ```bash
 cd <project-root> && source .venv/bin/activate && pip install -r .github/skills/screener/requirements.txt
+python3 -m playwright install chromium
 ```
+
+Note: The skill uses Playwright as the first-line page loader (headless Chromium) so JavaScript-rendered data is available before parsing.
 
 ## Command
 
 ```bash
 python3 index.py RELIANCE                              # company mode (default)
-python3 index.py TCS --standalone
+python3 index.py TCS --consolidated
 python3 index.py --mode explore                        # list existing screens + sectors
 python3 index.py --mode explore --sector Banks         # filter sectors by keyword
 python3 index.py --mode sector --sector Banks          # sector-wise browse using keyword
@@ -41,7 +44,8 @@ python3 index.py --mode sector --sector-url https://www.screener.in/market/IN05/
 
 - `--mode`: `company` (default), `explore`, or `sector`
 - `symbol`: NSE/BSE company code used on Screener URLs (e.g., `RELIANCE`, `TCS`) in `company` mode
-- `--standalone`: Optional flag to fetch standalone financials instead of consolidated in `company` mode
+- `--consolidated`: Optional flag to use consolidated company page (`/consolidated/`) in `company` mode
+- `--standalone`: Backward-compatible no-op for standalone mode (standalone URL is now default)
 - `--sector`: Optional sector keyword for `explore` filtering or `sector` selection (e.g., `Banks`, `Defense`)
 - `--sector-url`: Optional direct Screener sector page URL for `sector` mode
 - `--limit`: Optional max records returned per section/output block
@@ -85,7 +89,7 @@ Includes:
 ```json
 {
   "query_id": "RELIANCE",
-  "source_url": "https://www.screener.in/company/RELIANCE/consolidated/",
+  "source_url": "https://www.screener.in/company/RELIANCE/",
   "summary": "...",
   "ratios": {
     "Market Cap": "...",

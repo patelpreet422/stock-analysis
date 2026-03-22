@@ -1,10 +1,13 @@
 import sys
 import json
 import argparse
-import requests
-import pandas as pd
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+
+try:
+    from playwright.sync_api import sync_playwright
+except Exception:
+    sync_playwright = None
 
 USER_AGENT = {
     "User-Agent": (
@@ -16,9 +19,18 @@ USER_AGENT = {
 
 
 def _get_soup(url: str):
-    response = requests.get(url, headers=USER_AGENT, timeout=15)
-    response.raise_for_status()
-    return response, BeautifulSoup(response.text, "html.parser")
+    if sync_playwright is None:
+        raise RuntimeError("Playwright is not installed. Install it with: pip install playwright")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(user_agent=USER_AGENT["User-Agent"])
+        page.goto(url, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+        rendered_html = page.content()
+        final_url = page.url
+        browser.close()
+        return final_url, BeautifulSoup(rendered_html, "html.parser")
 
 
 def _normalize_url(url_or_path: str) -> str:
@@ -48,23 +60,101 @@ def _extract_link_title(anchor):
     text = anchor.get_text(" ", strip=True)
     return " ".join(text.split())
 
-def fetch_screener_data(symbol_or_id: str, consolidated: bool = True):
+
+def _extract_ratios_from_soup(soup: BeautifulSoup):
+    ratios = {}
+    ratio_ul = soup.find("ul", id="top-ratios")
+    if not ratio_ul:
+        return ratios
+
+    for li in ratio_ul.find_all("li"):
+        name = li.find("span", class_="name")
+        if not name:
+            continue
+
+        value_container = li.find("span", class_="value") or li
+        value_text = value_container.get_text(" ", strip=True)
+        value_text = " ".join(value_text.split())
+
+        ratio_name = name.get_text(strip=True)
+        if ratio_name:
+            ratios[ratio_name] = value_text
+
+    return ratios
+
+
+def _count_ratio_values_with_digits(ratios: dict) -> int:
+    count = 0
+    for value in ratios.values():
+        text = str(value)
+        if any(ch.isdigit() for ch in text):
+            count += 1
+    return count
+
+
+def _normalize_metric_label(label: str) -> str:
+    # Buttons in Screener rows may append a trailing "+" in the visible text.
+    return " ".join(label.replace("+", " ").split()).strip().lower()
+
+
+def _extract_sales_rows_from_profit_loss(soup: BeautifulSoup):
+    section = soup.find("section", id="profit-loss")
+    if not section:
+        return {"error": "Profit & Loss section not found"}
+
+    table = section.find("table")
+    if not table:
+        return {"error": "Profit & Loss table not found"}
+
+    headers = []
+    head_row = table.find("thead")
+    if head_row:
+        first_row = head_row.find("tr")
+        if first_row:
+            headers = [th.get_text(" ", strip=True) for th in first_row.find_all(["th", "td"])]
+
+    rows = []
+    body = table.find("tbody") or table
+    for tr in body.find_all("tr"):
+        cells = tr.find_all(["th", "td"])
+        if len(cells) < 2:
+            continue
+
+        row_values = [c.get_text(" ", strip=True) for c in cells]
+        label = row_values[0]
+        if not label:
+            continue
+
+        row_data = {"metric": label}
+        for idx, val in enumerate(row_values[1:], start=1):
+            key = headers[idx] if idx < len(headers) and headers[idx] else f"value_{idx}"
+            row_data[key] = val
+        rows.append(row_data)
+
+    sales_rows = [r for r in rows if _normalize_metric_label(r.get("metric", "")) == "sales"]
+    if sales_rows:
+        return sales_rows
+
+    return {"error": "Sales row not found in Profit & Loss table"}
+
+
+def _get_rendered_soup(url: str):
+    try:
+        return _get_soup(url)
+    except Exception:
+        return None
+
+def fetch_screener_data(symbol_or_id: str, consolidated: bool = False):
     """Fetches and parses company data and documents from Screener.in"""
     
-    # Construct URL (handles both ticker symbols and numeric IDs like 520073)
+    # Default to the company page; consolidated view can be requested explicitly.
     base_url = f"https://www.screener.in/company/{symbol_or_id.upper()}/"
     url = base_url + "consolidated/" if consolidated else base_url
         
     try:
-        response = requests.get(url, headers=USER_AGENT, timeout=10)
-        
-        # If consolidated doesn't exist, it redirects to standalone. Let's catch the final URL.
-        actual_url = response.url 
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
+        actual_url, soup = _get_soup(url)
+    except Exception as e:
         return json.dumps({"error": f"Failed to connect to Screener.in: {str(e)}"})
-
-    soup = BeautifulSoup(response.text, 'html.parser')
     
     # Initialize the data payload for the agent
     agent_payload = {
@@ -88,23 +178,31 @@ def fetch_screener_data(symbol_or_id: str, consolidated: bool = True):
         agent_payload["summary"] = " ".join([p.get_text(strip=True) for p in about_div.find_all('p')])
         
     # 2. Fetch Top Financial Ratios
-    ratio_ul = soup.find('ul', id='top-ratios')
-    if ratio_ul:
-        for li in ratio_ul.find_all('li'):
-            name = li.find('span', class_='name')
-            value = li.find('span', class_='number')
-            if name and value:
-                agent_payload["ratios"][name.get_text(strip=True)] = value.get_text(strip=True)
+    agent_payload["ratios"] = _extract_ratios_from_soup(soup)
 
     # 3. Fetch Sales / Financial Data
-    try:
-        tables = pd.read_html(response.text)
-        for df in tables:
-            if 'Sales' in df.columns or (len(df.columns) > 0 and df.iloc[:, 0].astype(str).str.contains('Sales').any()):
-                agent_payload["sales_data"] = df.fillna("").to_dict(orient="records")
-                break 
-    except Exception:
-        agent_payload["sales_data"] = {"error": "Could not parse data tables"}
+    agent_payload["sales_data"] = _extract_sales_rows_from_profit_loss(soup)
+
+    # Consolidated pages sometimes keep top ratios as placeholders for anonymous users.
+    # In that case, pull ratios from the standalone page as a best-effort fallback.
+    if consolidated and _count_ratio_values_with_digits(agent_payload["ratios"]) < 3:
+        standalone_rendered = _get_rendered_soup(base_url)
+        if standalone_rendered:
+            _, standalone_soup = standalone_rendered
+            standalone_ratios = _extract_ratios_from_soup(standalone_soup)
+            if _count_ratio_values_with_digits(standalone_ratios) > _count_ratio_values_with_digits(agent_payload["ratios"]):
+                agent_payload["ratios"] = standalone_ratios
+
+    # Consolidated Profit & Loss values may be unavailable in anonymous sessions.
+    # Use standalone sales row as fallback if consolidated sales extraction fails.
+    sales_still_failed = isinstance(agent_payload["sales_data"], dict) and "error" in agent_payload["sales_data"]
+    if consolidated and sales_still_failed:
+        standalone_rendered = _get_rendered_soup(base_url)
+        if standalone_rendered:
+            _, standalone_soup = standalone_rendered
+            standalone_sales = _extract_sales_rows_from_profit_loss(standalone_soup)
+            if not (isinstance(standalone_sales, dict) and "error" in standalone_sales):
+                agent_payload["sales_data"] = standalone_sales
 
     # 4. Fetch Page Sitemap (Sections for the agent to know what's available)
     nav = soup.find('nav', id='company-nav')
@@ -164,8 +262,8 @@ def fetch_screener_explore_data(sector_filter: str = None, per_category_limit: i
     """Fetch existing Screener screens and sectors from the Explore page."""
     explore_url = "https://www.screener.in/explore/"
     try:
-        response, soup = _get_soup(explore_url)
-    except requests.exceptions.RequestException as e:
+        source_url, soup = _get_soup(explore_url)
+    except Exception as e:
         return json.dumps({"error": f"Failed to connect to Screener Explore: {str(e)}"})
 
     screen_items = []
@@ -219,7 +317,7 @@ def fetch_screener_explore_data(sector_filter: str = None, per_category_limit: i
 
     payload = {
         "mode": "explore",
-        "source_url": response.url,
+        "source_url": source_url,
         "screens_total": len(screen_items),
         "screens_by_category": screens_by_category,
         "sectors_total": len(sector_items),
@@ -261,8 +359,8 @@ def fetch_screener_sector_browse(sector_or_url: str, limit: int = 25):
             sector_url = candidate["url"]
             sector_name = candidate["name"]
 
-        response, sector_soup = _get_soup(sector_url)
-    except requests.exceptions.RequestException as e:
+        source_url, sector_soup = _get_soup(sector_url)
+    except Exception as e:
         return json.dumps({"error": f"Failed to fetch Screener sector page: {str(e)}"})
 
     heading = sector_soup.find("h1")
@@ -325,7 +423,7 @@ def fetch_screener_sector_browse(sector_or_url: str, limit: int = 25):
 
     payload = {
         "mode": "sector-browse",
-        "source_url": response.url,
+        "source_url": source_url,
         "sector": resolved_sector_name,
         "companies_count": len(companies),
         "companies": companies,
@@ -345,7 +443,16 @@ if __name__ == "__main__":
         default=None,
         help="The NSE/BSE stock ticker or ID for company mode (e.g., 520073, RELIANCE)",
     )
-    parser.add_argument("--standalone", action="store_true", help="Fetch standalone financials instead of consolidated")
+    parser.add_argument(
+        "--standalone",
+        action="store_true",
+        help="Use standalone company URL (default behavior; kept for backward compatibility)",
+    )
+    parser.add_argument(
+        "--consolidated",
+        action="store_true",
+        help="Fetch consolidated financials using /consolidated/ URL",
+    )
     parser.add_argument(
         "--mode",
         choices=["company", "explore", "sector"],
@@ -377,7 +484,8 @@ if __name__ == "__main__":
         if not args.symbol:
             print(json.dumps({"error": "symbol is required in company mode"}, indent=2))
             sys.exit(1)
-        print(fetch_screener_data(args.symbol, consolidated=not args.standalone))
+        use_consolidated = args.consolidated and not args.standalone
+        print(fetch_screener_data(args.symbol, consolidated=use_consolidated))
     elif args.mode == "explore":
         print(fetch_screener_explore_data(sector_filter=args.sector, per_category_limit=args.limit))
     else:
