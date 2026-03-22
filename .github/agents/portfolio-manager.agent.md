@@ -24,7 +24,7 @@ When the user asks you to analyze a stock:
 1. **Delegate (in parallel):** Dispatch queries to all 5 sub-agents **simultaneously** and wait for all reports to return:
    - **`macro-agent`** — global and domestic economic analysis.
    - **`micro-agent`** — on-the-ground, sector-specific Indian micro-economic factors.
-   - **`fundamental-agent`** — business health, valuation, financials, management, and peer comparison using the `screener` skill for ratio extraction plus Explore intelligence (existing screens and sector-wise browsing from https://www.screener.in/explore/) and the `pdf` skill for documented/verified financial briefings.
+   - **`fundamental-agent`** — business health, valuation, financials, management, and peer comparison using the `screener` skill for ratio extraction plus Explore intelligence (existing screens and sector-wise browsing from https://www.screener.in/explore/) and a Markdown (`.md`) documented/verified financial briefing workflow.
    - **`sentiment-agent`** — retail sentiment, video analysis, institutional positioning, and public perception.
    - **`technical-agent`** — price action, volume, key levels, and trading plans.
 
@@ -36,7 +36,7 @@ When the user asks you to analyze a stock:
 
 Once all 5 sub-agent reports are in, build a **draft** investment report from the data. Do not force a narrative — let the data points converge (or conflict) on their own. Follow the Report Structure below.
 
-If the `fundamental-agent` provides a PDF briefing, treat it as a first-class artifact:
+If the `fundamental-agent` provides a Markdown briefing, treat it as a first-class artifact:
 - Read and cross-check the documented ratios/metrics against cited source values.
 - If discrepancies exist, re-query only the `fundamental-agent` with explicit correction requests.
 

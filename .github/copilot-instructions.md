@@ -12,7 +12,7 @@ When the user asks to **analyze a stock** (or uses phrases like "what do you thi
 2. The `portfolio-manager` will invoke all 5 sub-agents **in parallel** (not sequentially) and wait for all results:
    - **`macro-agent`** — Scans global and Indian macroeconomic conditions using the `news-summary` skill.
    - **`micro-agent`** — Analyzes on-the-ground, sector-specific Indian micro-economic factors (rural/urban demand, input costs, local policies, organized/unorganized shifts).
-   - **`fundamental-agent`** — Deep-dives into company financials, valuation, and business health using the `screener` skill for ratios plus Explore intelligence (existing screens and sector-wise browsing at https://www.screener.in/explore/) and the `pdf` skill for documented verification.
+   - **`fundamental-agent`** — Deep-dives into company financials, valuation, and business health using the `screener` skill for ratios plus Explore intelligence (existing screens and sector-wise browsing at https://www.screener.in/explore/) and a Markdown-first documented verification workflow.
    - **`sentiment-agent`** — Gauges retail and public sentiment using the `youtube-watcher` and `news-summary` skills.
    - **`technical-agent`** — Analyzes price action, volume, and key levels using the `yahoo-data-fetcher` skill.
 3. Once **all** sub-agent reports are received, the `portfolio-manager` builds a **draft report** (not shown to the user yet).
@@ -45,7 +45,7 @@ When the user asks to **analyze a stock** (or uses phrases like "what do you thi
 ## Available Skills
 
 - `news-summary` — Fetches latest news from trusted RSS feeds
-- `pdf` — Reads, extracts, and creates PDF documents for structured reporting and verification
+- `pdf` — Reads and extracts content from PDF source documents linked via Screener (annual reports, concalls, ratings, etc.); do not use it to generate reports, keep report artifacts in Markdown `.md`
 - `screener` — Fetches company financials, key ratios, existing/public screens from https://www.screener.in/explore/, and sector-wise browse data from Screener.in
 - `yahoo-data-fetcher` — Fetches real-time stock quotes, historical OHLCV data, and symbol search from Yahoo Finance (via yfinance)
 - `youtube-watcher` — Fetches and reads YouTube video transcripts
