@@ -24,7 +24,7 @@ When the user asks you to analyze a stock:
 1. **Delegate (in parallel):** Dispatch queries to all 5 sub-agents **simultaneously** and wait for all reports to return:
    - **`macro-agent`** — global and domestic economic analysis.
    - **`micro-agent`** — on-the-ground, sector-specific Indian micro-economic factors.
-   - **`fundamental-agent`** — business health, valuation, financials, management, and peer comparison using the `screener` skill for ratio extraction and the `pdf` skill for documented/verified financial briefings.
+   - **`fundamental-agent`** — business health, valuation, financials, management, and peer comparison using the `screener` skill for ratio extraction plus Explore intelligence (existing screens and sector-wise browsing from https://www.screener.in/explore/) and the `pdf` skill for documented/verified financial briefings.
    - **`sentiment-agent`** — retail sentiment, video analysis, institutional positioning, and public perception.
    - **`technical-agent`** — price action, volume, key levels, and trading plans.
 

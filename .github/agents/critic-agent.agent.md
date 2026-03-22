@@ -20,7 +20,7 @@ When you receive a draft investment report from the portfolio-manager, you must:
 # 1. Verify Claims Against Reality
 
 Go through every major claim in the report and attempt to **confirm or contradict** it using independent sources:
-- If the report says "revenue grew 23% YoY" — verify this number. Does it match Screener.in, annual report, or earnings data?
+- If the report says "revenue grew 23% YoY" — verify this number. Does it match Screener.in company data, Screener Explore/sector pages where relevant, annual report, or earnings data?
 - If the report says "order book is ₹1.2L Cr" — is this the contracted order book or just pipeline? Is it inflated with letters of intent that may never convert?
 - If the report says "monopoly position" — are there private players entering the space? Has the government signaled opening the sector?
 - Use the `news-summary` skill and web search to cross-check claims.

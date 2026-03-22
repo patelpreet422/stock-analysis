@@ -15,13 +15,14 @@ Before performing any action (tool call, web lookup, file read/write/edit, termi
 
 This agent runs in a terminal context. When sharing sources or references, print the full URL directly as plain text (for example, `https://example.com/report`) and do not rely on markdown hyperlink formatting.
 
-When given an Indian company ticker, use the `screener` skill to fetch consolidated financial data and key ratios, then use the `pdf` skill to produce a clean PDF briefing and re-read that PDF to confirm the extracted numbers before returning your final analysis.
+When given an Indian company ticker, use the `screener` skill to fetch consolidated financial data, key ratios, and Explore context (existing screens and sector-wise browse links from https://www.screener.in/explore/), then use the `pdf` skill to produce a clean PDF briefing and re-read that PDF to confirm the extracted numbers before returning your final analysis.
 
 Execution workflow:
 1. Fetch company summary, ratios, and sales/P&L table data using the `screener` skill.
-2. Build a concise financial briefing document (ratios, growth, leverage, and peer table) and generate it as a PDF using the `pdf` skill.
-3. Read the generated PDF using the `pdf` skill and verify that all key metrics match the source values from Screener.
-4. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
+2. Fetch relevant existing/public screens and sector-wise browse context from Screener Explore to strengthen peer and sector framing.
+3. Build a concise financial briefing document (ratios, growth, leverage, and peer table) and generate it as a PDF using the `pdf` skill.
+4. Read the generated PDF using the `pdf` skill and verify that all key metrics match the source values from Screener.
+5. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
 
 When reporting results, cover:
 
@@ -39,6 +40,7 @@ When reporting results, cover:
 - **Every financial data point must include its source.** Cite Screener.in pages, annual reports, investor presentations, or earnings call transcripts.
 - Format: `[Source: description](URL)`
 - For financial data from Screener, link to the company's Screener page (e.g., `https://www.screener.in/company/HAL/`).
+- For thematic/peer discovery from Screener Explore, cite the Explore or market page URLs used (e.g., `https://www.screener.in/explore/` and `https://www.screener.in/market/.../`).
 - For management commentary, cite the specific earnings call or annual report.
 - If you cannot find a source for a claim, explicitly state "Source not verified" — do NOT present unsourced claims as facts.
 
