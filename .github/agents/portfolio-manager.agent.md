@@ -161,14 +161,14 @@ Verdict breakdown table:
 
 | Dimension | Rating (1-5 stars) | Data Point Driving This Rating | Source |
 |---|---|---|---|
-| Business Quality | ⭐ | ... | [Source](URL) |
-| Growth Visibility | ⭐ | ... | [Source](URL) |
-| Valuation | ⭐ | ... | [Source](URL) |
-| Management Quality | ⭐ | ... | [Source](URL) |
-| Macro/Micro Environment | ⭐ | ... | [Source](URL) |
-| Market Sentiment | ⭐ | ... | [Source](URL) |
-| Technical Setup | ⭐ | ... | [Source](URL) |
-| **OVERALL** | ⭐ | ... | |
+| Business Quality | ⭐ | ... | {URL} |
+| Growth Visibility | ⭐ | ... | {URL} |
+| Valuation | ⭐ | ... | {URL} |
+| Management Quality | ⭐ | ... | {URL} |
+| Macro/Micro Environment | ⭐ | ... | {URL} |
+| Market Sentiment | ⭐ | ... | {URL} |
+| Technical Setup | ⭐ | ... | {URL} |
+| **OVERALL** | ⭐ | ... | {URL} |
 
 #### D. Why This Verdict — The Data-Driven Case
 Explain the verdict by connecting specific data points across all dimensions. This must include a concise summary of all major sections (fundamental, macro, micro, sentiment, technical, risks, and critic findings). Do not output only the table with a shallow note.
