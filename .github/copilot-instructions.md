@@ -56,6 +56,28 @@ When the user asks to **analyze a stock** (or uses phrases like "what do you thi
 - Reports are always Markdown (`.md`), never PDF
 - If a report for the same symbol and date already exists, append a numeric suffix (e.g., `-2`)
 
+## Glossary Reference
+
+- A shared glossary of financial terms, acronyms, and interpretation guides is maintained at `reports/GLOSSARY.md`
+- **Do NOT embed inline glossaries in individual reports.** Instead, add a footer link: `📖 *Unfamiliar with a term? See the [Glossary](GLOSSARY.md) for definitions and interpretation guides.*`
+- When a report introduces a new term not yet in the glossary, **append it to `reports/GLOSSARY.md`** under the appropriate category using the heading-based anchor format (`### slug-name` followed by the definition). Use lowercase kebab-case slugs.
+- All agents (macro, micro, fundamental, sentiment, technical, portfolio-manager) must follow this rule — no duplicated glossaries across reports
+
+### Key Terms Section & Inline Linking
+
+Each report should include a **"Key Terms Used"** section (near the end, before the disclaimer) listing the most important technical terms with direct glossary links. This helps readers quickly look up unfamiliar concepts.
+
+**Linking priority rule:**
+1. **Source link first** — if a term appears alongside a live data citation (Yahoo Finance, Screener.in, news article), the source link takes priority. Do NOT replace source citations with glossary links.
+2. **Glossary link for definitions** — when a term is used without an accompanying source (e.g., "VIX dropped below 18" with no Yahoo URL nearby), link it to the glossary: `[VIX](GLOSSARY.md#vix)`.
+3. **Key Terms section always uses glossary links** — the dedicated section at the bottom always links to glossary anchors regardless of whether sources exist elsewhere in the report.
+
+**Example "Key Terms Used" section:**
+```markdown
+## Key Terms Used
+[VIX](GLOSSARY.md#vix) · [FII](GLOSSARY.md#fii) · [DII](GLOSSARY.md#dii) · [200 DMA](GLOSSARY.md#200-dma) · [PCR](GLOSSARY.md#pcr) · [CPI](GLOSSARY.md#cpi) · [CAD](GLOSSARY.md#cad) · [DXY](GLOSSARY.md#dxy) · [bps](GLOSSARY.md#bps)
+```
+
 ## Screener Data: Consolidated vs Standalone
 
 - Default to `--consolidated` for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs)

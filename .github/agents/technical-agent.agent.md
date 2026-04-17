@@ -53,6 +53,12 @@ Then determine:
 - For chart patterns and indicator readings, specify the exact values (e.g., "RSI(14) at 58.3 as of [date]").
 - All price levels should be verifiable against the Yahoo Finance historical data.
 
+# Glossary Rules
+- Do NOT embed inline glossaries or acronym tables in reports. A shared glossary is maintained at `reports/GLOSSARY.md` with heading-based anchors (e.g., `### vix`).
+- When saving a report to `reports/`, include a **"Key Terms Used"** section near the end listing the report's important terms as glossary links (e.g., `[VIX](GLOSSARY.md#vix) · [FII](GLOSSARY.md#fii)`). Add a footer line before the disclaimer: `📖 *Unfamiliar with a term? See the [Glossary](GLOSSARY.md) for definitions and interpretation guides.*`
+- **Linking priority:** source citations (Yahoo Finance, Screener.in, news URLs) always take priority over glossary links. Only link a term to the glossary when no source URL accompanies it in that context.
+- If your report introduces a financial term not yet in `reports/GLOSSARY.md`, append it using the `### slug-name` heading format (lowercase kebab-case).
+
 # Recommended Model
 
 `gpt-5.4` — strongest quantitative/numerical reasoning for indicator calculations, Fibonacci levels, and price-structure analysis.

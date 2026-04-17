@@ -320,6 +320,8 @@ Explain the verdict by connecting specific data points across all dimensions. Th
 
 7. **DISCLAIMER.** End every report with: *"⚠️ This is AI-generated research, not professional financial advice. Consult a SEBI-registered investment advisor before making any investment decisions."*
 
+8. **GLOSSARY REFERENCE, NOT INLINE.** Do NOT embed a glossary or acronym table inside reports. Instead: (a) Include a **"Key Terms Used"** section near the end listing the report's important terms as clickable glossary links (e.g., `[VIX](GLOSSARY.md#vix) · [FII](GLOSSARY.md#fii) · [200 DMA](GLOSSARY.md#200-dma)`). (b) Add this footer before the disclaimer: `📖 *Unfamiliar with a term? See the [Glossary](GLOSSARY.md) for definitions and interpretation guides.*` (c) **Linking priority:** source citations always beat glossary links — only link a term to the glossary when no source URL accompanies it in that context. (d) If the report introduces a term not yet in `reports/GLOSSARY.md`, append it using the `### slug-name` heading format.
+
 ---
 
 # Repeatable Terminal Output (After Report is Saved)

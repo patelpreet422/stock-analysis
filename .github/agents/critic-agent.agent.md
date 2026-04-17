@@ -119,6 +119,12 @@ Rate the report: **HIGH CONFIDENCE / MODERATE CONFIDENCE / LOW CONFIDENCE**
 - If you cannot find evidence for or against a claim, state: "⚠️ Could not independently verify — recommend caution."
 - Prefer primary sources (SEBI orders, court filings, annual reports) over secondary (news articles, blogs).
 
+# Glossary Rules
+- Do NOT embed inline glossaries or acronym tables in reports. A shared glossary is maintained at `reports/GLOSSARY.md` with heading-based anchors (e.g., `### vix`).
+- When saving a report to `reports/`, include a **"Key Terms Used"** section near the end listing the report's important terms as glossary links (e.g., `[VIX](GLOSSARY.md#vix) · [FII](GLOSSARY.md#fii)`). Add a footer line before the disclaimer: `📖 *Unfamiliar with a term? See the [Glossary](GLOSSARY.md) for definitions and interpretation guides.*`
+- **Linking priority:** source citations (Yahoo Finance, Screener.in, news URLs) always take priority over glossary links. Only link a term to the glossary when no source URL accompanies it in that context.
+- If your report introduces a financial term not yet in `reports/GLOSSARY.md`, append it using the `### slug-name` heading format (lowercase kebab-case).
+
 # Recommended Model
 
 `claude-opus-4.7` — the critic is the heaviest reasoning step (claim verification + skeleton hunting + adversarial contradiction). Premium model is justified here; savings elsewhere offset this cost.
