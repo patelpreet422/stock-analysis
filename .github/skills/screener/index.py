@@ -25,7 +25,7 @@ def _get_soup(url: str):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(user_agent=USER_AGENT["User-Agent"])
-        page.goto(url, wait_until="networkidle", timeout=30000)
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(1500)
         rendered_html = page.content()
         final_url = page.url
@@ -97,19 +97,18 @@ def _normalize_metric_label(label: str) -> str:
     return " ".join(label.replace("+", " ").split()).strip().lower()
 
 
-def _extract_sales_rows_from_profit_loss(soup: BeautifulSoup):
-    section = soup.find("section", id="profit-loss")
-    if not section:
-        return {"error": "Profit & Loss section not found"}
+def _extract_generic_table(table):
+    """Extract a standard period-over-period Screener table into headers + rows.
 
-    table = section.find("table")
+    Each row is: {"metric": <label>, <period>: <value>, ...}
+    """
     if not table:
-        return {"error": "Profit & Loss table not found"}
+        return {"headers": [], "rows": []}
 
     headers = []
-    head_row = table.find("thead")
-    if head_row:
-        first_row = head_row.find("tr")
+    head = table.find("thead")
+    if head:
+        first_row = head.find("tr")
         if first_row:
             headers = [th.get_text(" ", strip=True) for th in first_row.find_all(["th", "td"])]
 
@@ -119,22 +118,57 @@ def _extract_sales_rows_from_profit_loss(soup: BeautifulSoup):
         cells = tr.find_all(["th", "td"])
         if len(cells) < 2:
             continue
-
-        row_values = [c.get_text(" ", strip=True) for c in cells]
-        label = row_values[0]
+        values = [c.get_text(" ", strip=True) for c in cells]
+        label = values[0]
         if not label:
             continue
-
-        row_data = {"metric": label}
-        for idx, val in enumerate(row_values[1:], start=1):
+        row = {"metric": label}
+        for idx, val in enumerate(values[1:], start=1):
             key = headers[idx] if idx < len(headers) and headers[idx] else f"value_{idx}"
-            row_data[key] = val
-        rows.append(row_data)
+            row[key] = val
+        rows.append(row)
 
-    sales_rows = [r for r in rows if _normalize_metric_label(r.get("metric", "")) == "sales"]
+    return {"headers": headers, "rows": rows}
+
+
+def _extract_ranges_table(table):
+    """Parse Screener's small ranges-table (10y/5y/3y/1y growth summary).
+
+    Returns (label, {period: value}) or (None, {}) if not recognisable.
+    """
+    if not table:
+        return None, {}
+    label = None
+    th = table.find("th")
+    if th:
+        label = th.get_text(" ", strip=True)
+    values = {}
+    for tr in table.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) == 2:
+            key = tds[0].get_text(" ", strip=True).rstrip(":").strip()
+            val = tds[1].get_text(" ", strip=True)
+            if key:
+                values[key] = val
+    return label, values
+
+
+def _extract_sales_rows_from_profit_loss(soup: BeautifulSoup):
+    """Backward-compatible helper: returns the Sales row(s) only.
+
+    Retained for consumers that rely on the legacy `sales_data` field.
+    """
+    section = soup.find("section", id="profit-loss")
+    if not section:
+        return {"error": "Profit & Loss section not found"}
+    table = section.find("table")
+    if not table:
+        return {"error": "Profit & Loss table not found"}
+    extracted = _extract_generic_table(table)
+    sales_rows = [r for r in extracted["rows"]
+                  if _normalize_metric_label(r.get("metric", "")) == "sales"]
     if sales_rows:
         return sales_rows
-
     return {"error": "Sales row not found in Profit & Loss table"}
 
 
@@ -144,118 +178,299 @@ def _get_rendered_soup(url: str):
     except Exception:
         return None
 
+def _build_sitemap(soup: BeautifulSoup):
+    """Screener does not use <nav id="company-nav">; sections live as <section id="…">.
+
+    Walk the top-level sections and return them with their visible heading.
+    """
+    sections = []
+    for s in soup.find_all("section", id=True):
+        heading_node = s.find(["h1", "h2", "h3"])
+        heading = heading_node.get_text(" ", strip=True) if heading_node else s.get("id", "")
+        sections.append({"section": heading or s["id"], "anchor": f"#{s['id']}"})
+    return sections
+
+
+def _extract_growth_blocks(profit_loss_section):
+    """Pull the four ranges-table summaries after the main P&L table.
+
+    Keys are snake_case of the visible heading.
+    """
+    blocks = {}
+    if not profit_loss_section:
+        return blocks
+    tables = profit_loss_section.find_all("table")
+    # First table is the main P&L; remaining .ranges-table entries carry growth/ROE/CAGR.
+    for table in tables[1:]:
+        classes = table.get("class") or []
+        if "ranges-table" not in classes:
+            continue
+        label, values = _extract_ranges_table(table)
+        if not label:
+            continue
+        key = "_".join(label.lower().split())
+        blocks[key] = {"label": label, "values": values}
+    return blocks
+
+
+def _extract_documents(docs_section, actual_url):
+    """Parse the Documents section. Each `.documents` block has an h3 heading
+    (Announcements, Annual reports, Credit ratings, Concalls) and <li> entries.
+    """
+    out = {
+        "announcements": [],
+        "annual_reports": [],
+        "credit_ratings": [],
+        "concalls": [],
+    }
+    if not docs_section:
+        return out
+
+    key_map = {
+        "announcements": "announcements",
+        "annual reports": "annual_reports",
+        "credit ratings": "credit_ratings",
+        "concalls": "concalls",
+    }
+
+    for block in docs_section.find_all("div", class_="documents"):
+        heading_node = block.find(["h2", "h3", "h4"])
+        if not heading_node:
+            continue
+        heading = heading_node.get_text(" ", strip=True).lower()
+        key = key_map.get(heading)
+        if not key:
+            continue
+
+        if key == "concalls":
+            # Concalls li rows bundle period (first text child) + multiple links (Transcript/PPT/Notes/REC).
+            for li in block.find_all("li"):
+                period = ""
+                for node in li.contents:
+                    if getattr(node, "name", None) is None:
+                        text = str(node).strip()
+                        if text:
+                            period = text
+                            break
+                    elif node.name not in {"a", "button"}:
+                        text = node.get_text(" ", strip=True)
+                        if text:
+                            period = text
+                            break
+                files = []
+                for a in li.find_all("a"):
+                    href = a.get("href")
+                    text = a.get_text(" ", strip=True)
+                    if href and text:
+                        files.append({"type": text, "url": urljoin(actual_url, href)})
+                for btn in li.find_all("button"):
+                    text = btn.get_text(" ", strip=True)
+                    if text and text.lower() in {"transcript", "notes", "ppt", "rec", "ai summary"}:
+                        # buttons without hrefs are tracked so the agent knows what exists.
+                        if not any(f.get("type", "").lower() == text.lower() for f in files):
+                            files.append({"type": text, "url": None})
+                if files or period:
+                    out[key].append({"period": period or "Unknown", "files": files})
+        else:
+            for li in block.find_all("li"):
+                a = li.find("a")
+                if not a:
+                    continue
+                href = a.get("href")
+                title_parts = []
+                for node in a.contents:
+                    if getattr(node, "name", None) is None:
+                        text = str(node).strip()
+                        if text:
+                            title_parts.append(text)
+                    elif node.name in {"span", "strong", "b"}:
+                        text = node.get_text(" ", strip=True)
+                        if text:
+                            title_parts.append(text)
+                title = " ".join(" ".join(title_parts).split()) or a.get_text(" ", strip=True)
+                if href and title and "search" not in title.lower():
+                    out[key].append({"title": title, "url": urljoin(actual_url, href)})
+    return out
+
+
+def _parse_number(text):
+    """Parse a Screener value like '₹ 1,365' or '18,47,111 Cr.' into a float.
+
+    Returns None when parsing fails.
+    """
+    if not text:
+        return None
+    s = str(text).strip()
+    # strip currency, percent, commas, units
+    for token in ["₹", "Rs", "Rs.", "Cr.", "Cr", "%"]:
+        s = s.replace(token, "")
+    s = s.replace(",", "").strip()
+    # High / Low patterns are "1,612 / 1,267"
+    if "/" in s:
+        s = s.split("/")[0].strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _derive_ratios(top_ratios: dict, profit_loss: dict, balance_sheet: dict) -> dict:
+    """Compute common valuation ratios not shown explicitly on the Screener top bar.
+
+    Market Cap / Sales, Price to Book, EV / EBITDA (when borrowings + cash available).
+    """
+    derived = {}
+    mcap = _parse_number(top_ratios.get("Market Cap"))
+    cmp = _parse_number(top_ratios.get("Current Price"))
+    bv = _parse_number(top_ratios.get("Book Value"))
+
+    if cmp is not None and bv not in (None, 0):
+        derived["Price to Book"] = round(cmp / bv, 2)
+
+    # Most recent Sales figure from P&L (prefer TTM, else last period)
+    pl_rows = profit_loss.get("rows", []) if isinstance(profit_loss, dict) else []
+    headers = profit_loss.get("headers", []) if isinstance(profit_loss, dict) else []
+    sales_row = next((r for r in pl_rows
+                      if _normalize_metric_label(r.get("metric", "")) == "sales"), None)
+    if sales_row and headers:
+        last_key = "TTM" if "TTM" in headers else headers[-1]
+        ttm_sales = _parse_number(sales_row.get(last_key))
+        if mcap and ttm_sales:
+            derived["Market Cap / Sales"] = round(mcap / ttm_sales, 2)
+
+    # EV/EBITDA approximation: EV = Mcap + Borrowings − Cash; EBITDA from Operating Profit TTM
+    bs_rows = balance_sheet.get("rows", []) if isinstance(balance_sheet, dict) else []
+    bs_headers = balance_sheet.get("headers", []) if isinstance(balance_sheet, dict) else []
+    latest_bs_key = bs_headers[-1] if bs_headers else None
+    borrow = None
+    if latest_bs_key:
+        borrow_row = next((r for r in bs_rows
+                           if _normalize_metric_label(r.get("metric", "")) == "borrowings"), None)
+        if borrow_row:
+            borrow = _parse_number(borrow_row.get(latest_bs_key))
+    op_profit_row = next((r for r in pl_rows
+                          if _normalize_metric_label(r.get("metric", "")) == "operating profit"), None)
+    if mcap and borrow is not None and op_profit_row and headers:
+        last_key = "TTM" if "TTM" in headers else headers[-1]
+        ebitda = _parse_number(op_profit_row.get(last_key))
+        if ebitda and ebitda != 0:
+            ev = mcap + borrow
+            derived["EV / EBITDA (approx)"] = round(ev / ebitda, 2)
+
+    return derived
+
+
 def fetch_screener_data(symbol_or_id: str, consolidated: bool = False):
     """Fetches and parses company data and documents from Screener.in"""
-    
-    # Default to the company page; consolidated view can be requested explicitly.
+
     base_url = f"https://www.screener.in/company/{symbol_or_id.upper()}/"
     url = base_url + "consolidated/" if consolidated else base_url
-        
+
     try:
         actual_url, soup = _get_soup(url)
     except Exception as e:
         return json.dumps({"error": f"Failed to connect to Screener.in: {str(e)}"})
-    
-    # Initialize the data payload for the agent
-    agent_payload = {
+
+    payload = {
         "query_id": symbol_or_id.upper(),
         "source_url": actual_url,
         "summary": "",
         "ratios": {},
-        "sales_data": [],
+        "derived_ratios": {},
         "sitemap_sections": [],
+        "sales_data": [],
+        "quarterly_results": {"headers": [], "rows": []},
+        "profit_loss": {"headers": [], "rows": []},
+        "balance_sheet": {"headers": [], "rows": []},
+        "cash_flow": {"headers": [], "rows": []},
+        "ratios_history": {"headers": [], "rows": []},
+        "growth_metrics": {},
+        "shareholding": {"quarterly": {"headers": [], "rows": []},
+                         "yearly": {"headers": [], "rows": []}},
         "documents": {
             "announcements": [],
             "annual_reports": [],
             "credit_ratings": [],
-            "concalls": []
-        }
+            "concalls": [],
+        },
     }
-    
-    # 1. Fetch Company Summary
-    about_div = soup.find('div', class_='about')
+
+    # 1. Summary
+    about_div = soup.find("div", class_="about")
     if about_div:
-        agent_payload["summary"] = " ".join([p.get_text(strip=True) for p in about_div.find_all('p')])
-        
-    # 2. Fetch Top Financial Ratios
-    agent_payload["ratios"] = _extract_ratios_from_soup(soup)
+        payload["summary"] = " ".join(p.get_text(strip=True) for p in about_div.find_all("p"))
 
-    # 3. Fetch Sales / Financial Data
-    agent_payload["sales_data"] = _extract_sales_rows_from_profit_loss(soup)
+    # 2. Top ratios bar
+    payload["ratios"] = _extract_ratios_from_soup(soup)
 
-    # Consolidated pages sometimes keep top ratios as placeholders for anonymous users.
-    # In that case, pull ratios from the standalone page as a best-effort fallback.
-    if consolidated and _count_ratio_values_with_digits(agent_payload["ratios"]) < 3:
-        standalone_rendered = _get_rendered_soup(base_url)
-        if standalone_rendered:
-            _, standalone_soup = standalone_rendered
-            standalone_ratios = _extract_ratios_from_soup(standalone_soup)
-            if _count_ratio_values_with_digits(standalone_ratios) > _count_ratio_values_with_digits(agent_payload["ratios"]):
-                agent_payload["ratios"] = standalone_ratios
+    # 3. Sitemap (from <section id=...> elements)
+    payload["sitemap_sections"] = _build_sitemap(soup)
 
-    # Consolidated Profit & Loss values may be unavailable in anonymous sessions.
-    # Use standalone sales row as fallback if consolidated sales extraction fails.
-    sales_still_failed = isinstance(agent_payload["sales_data"], dict) and "error" in agent_payload["sales_data"]
-    if consolidated and sales_still_failed:
-        standalone_rendered = _get_rendered_soup(base_url)
-        if standalone_rendered:
-            _, standalone_soup = standalone_rendered
-            standalone_sales = _extract_sales_rows_from_profit_loss(standalone_soup)
-            if not (isinstance(standalone_sales, dict) and "error" in standalone_sales):
-                agent_payload["sales_data"] = standalone_sales
+    # 4. Quarterly, P&L, Balance Sheet, Cash Flow, Ratios history
+    def _first_table(section_id):
+        sec = soup.find("section", id=section_id)
+        return sec.find("table") if sec else None, sec
 
-    # 4. Fetch Page Sitemap (Sections for the agent to know what's available)
-    nav = soup.find('nav', id='company-nav')
-    if nav:
-        for link in nav.find_all('a'):
-            href = link.get('href')
-            text = link.get_text(strip=True)
-            if href and text:
-                agent_payload["sitemap_sections"].append({"section": text, "anchor": href})
+    q_table, _ = _first_table("quarters")
+    payload["quarterly_results"] = _extract_generic_table(q_table)
 
-    # 5. Extract Documents for Agent usage
-    docs_section = soup.find('section', id='documents')
-    if docs_section:
-        
-        # Helper function to extract document links inside a specific category block
-        def extract_links_from_block(block_title):
-            extracted = []
-            # Find the header (e.g., "Annual reports")
-            header = docs_section.find(lambda tag: tag.name in ['h3', 'h4', 'h2'] and block_title.lower() in tag.get_text().lower())
-            if header:
-                # The links are usually in a ul/div right after or inside the parent container
-                container = header.find_parent('div') or header.find_next_sibling('ul')
-                if container:
-                    links = container.find_all('a')
-                    for a in links:
-                        href = a.get('href')
-                        text = a.get_text(strip=True)
-                        if href and text and "search" not in text.lower():
-                            full_url = urljoin(actual_url, href)
-                            extracted.append({"title": text, "url": full_url})
-            return extracted
+    pl_table, pl_section = _first_table("profit-loss")
+    payload["profit_loss"] = _extract_generic_table(pl_table)
+    payload["growth_metrics"] = _extract_growth_blocks(pl_section)
 
-        # Map document categories
-        agent_payload["documents"]["announcements"] = extract_links_from_block("Announcements")
-        agent_payload["documents"]["annual_reports"] = extract_links_from_block("Annual reports")
-        agent_payload["documents"]["credit_ratings"] = extract_links_from_block("Credit ratings")
-        
-        # Concalls are often structured slightly differently (Transcript, PPT, Audio)
-        concall_header = docs_section.find(lambda tag: tag.name in ['h3', 'h4'] and 'concalls' in tag.get_text().lower())
-        if concall_header:
-            concall_container = concall_header.find_parent('div')
-            if concall_container:
-                # Items are usually listed by date (e.g., "Feb 2024")
-                for li in concall_container.find_all('li'):
-                    date_text = li.contents[0].strip() if li.contents else "Unknown Date"
-                    links = [{"type": a.get_text(strip=True), "url": urljoin(actual_url, a.get('href'))} for a in li.find_all('a')]
-                    if links:
-                        agent_payload["documents"]["concalls"].append({
-                            "period": date_text,
-                            "files": links
-                        })
+    bs_table, _ = _first_table("balance-sheet")
+    payload["balance_sheet"] = _extract_generic_table(bs_table)
 
-    return json.dumps(agent_payload, indent=2)
+    cf_table, _ = _first_table("cash-flow")
+    payload["cash_flow"] = _extract_generic_table(cf_table)
+
+    r_table, _ = _first_table("ratios")
+    payload["ratios_history"] = _extract_generic_table(r_table)
+
+    # 5. Shareholding — typically two tables (quarterly, yearly)
+    sh_section = soup.find("section", id="shareholding")
+    if sh_section:
+        sh_tables = sh_section.find_all("table")
+        if len(sh_tables) >= 1:
+            payload["shareholding"]["quarterly"] = _extract_generic_table(sh_tables[0])
+        if len(sh_tables) >= 2:
+            payload["shareholding"]["yearly"] = _extract_generic_table(sh_tables[1])
+
+    # 6. Legacy sales_data field (single row for backward compat)
+    payload["sales_data"] = _extract_sales_rows_from_profit_loss(soup)
+
+    # 7. Documents
+    docs_section = soup.find("section", id="documents")
+    payload["documents"] = _extract_documents(docs_section, actual_url)
+
+    # 8. Fallbacks: consolidated pages sometimes hide ratios/P&L for anonymous users.
+    if consolidated and _count_ratio_values_with_digits(payload["ratios"]) < 3:
+        fallback = _get_rendered_soup(base_url)
+        if fallback:
+            _, standalone_soup = fallback
+            alt_ratios = _extract_ratios_from_soup(standalone_soup)
+            if _count_ratio_values_with_digits(alt_ratios) > _count_ratio_values_with_digits(payload["ratios"]):
+                payload["ratios"] = alt_ratios
+
+    pl_is_error = isinstance(payload["profit_loss"], dict) and not payload["profit_loss"].get("rows")
+    if consolidated and pl_is_error:
+        fallback = _get_rendered_soup(base_url)
+        if fallback:
+            _, standalone_soup = fallback
+            alt_pl_section = standalone_soup.find("section", id="profit-loss")
+            alt_pl_table = alt_pl_section.find("table") if alt_pl_section else None
+            alt_pl = _extract_generic_table(alt_pl_table)
+            if alt_pl.get("rows"):
+                payload["profit_loss"] = alt_pl
+                payload["sales_data"] = _extract_sales_rows_from_profit_loss(standalone_soup)
+                payload["growth_metrics"] = _extract_growth_blocks(alt_pl_section)
+
+    # 9. Derived valuation ratios (P/B, MC/Sales, EV/EBITDA)
+    payload["derived_ratios"] = _derive_ratios(
+        payload["ratios"], payload["profit_loss"], payload["balance_sheet"]
+    )
+
+    return json.dumps(payload, indent=2)
 
 
 def fetch_screener_explore_data(sector_filter: str = None, per_category_limit: int = 15):

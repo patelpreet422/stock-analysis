@@ -58,12 +58,24 @@ Returns structured JSON depending on mode.
 
 Includes:
 
-- `symbol`
-- `source_url`
-- `summary`
-- `ratios`
-- `sales_data`
-- `sitemap`
+- `query_id` — uppercased ticker that was requested
+- `source_url` — final Screener URL resolved (standalone or consolidated)
+- `summary` — About blurb from Screener's description block
+- `ratios` — Top ratio bar (Market Cap, Current Price, High/Low, Stock P/E, Book Value, Dividend Yield, ROCE, ROE, Face Value)
+- `derived_ratios` — Computed valuations not shown explicitly on the top bar: `Price to Book`, `Market Cap / Sales`, `EV / EBITDA (approx)` (skipped gracefully when inputs aren't available, e.g. banks)
+- `sitemap_sections` — Every `<section id=...>` on the page with its heading and anchor
+- `sales_data` — Legacy field: only the Sales row of P&L (kept for backward compatibility)
+- `quarterly_results` — `{ headers, rows }` for the full Quarterly Results table (Sales/Revenue, Expenses, Operating Profit, OPM %, Other Income, Interest, Depreciation, PBT, Tax %, Net Profit, EPS…)
+- `profit_loss` — `{ headers, rows }` for the complete annual Profit & Loss table (Mar 20xx … TTM)
+- `balance_sheet` — `{ headers, rows }` for the Balance Sheet table (Equity, Reserves, Borrowings, Fixed Assets, CWIP, Investments, Total Assets, …)
+- `cash_flow` — `{ headers, rows }` for the Cash Flows table (Operating / Investing / Financing, Net Cash Flow, Free Cash Flow, CFO/OP)
+- `ratios_history` — `{ headers, rows }` for the yearly Ratios table (Debtor Days, Inventory Days, Cash Conversion Cycle, Working Capital Days, ROCE %; banks only expose ROE % here)
+- `growth_metrics` — The four Screener summary tables: `compounded_sales_growth`, `compounded_profit_growth`, `stock_price_cagr`, `return_on_equity` (each with `{label, values: {"10 Years": "…", "5 Years": "…", "3 Years": "…", "TTM"/"1 Year"/"Last Year": "…"}}`)
+- `shareholding.quarterly` / `shareholding.yearly` — `{ headers, rows }` for the two Shareholding Pattern tabs (Promoters, FIIs, DIIs, Government, Public, No. of Shareholders)
+- `documents.announcements` — list of `{title, url}` (recent BSE disclosures)
+- `documents.annual_reports` — list of `{title, url}`
+- `documents.credit_ratings` — list of `{title, url}` (CRISIL / ICRA / CARE)
+- `documents.concalls` — list of `{period, files: [{type, url}]}` where type is Transcript / PPT / Notes / REC / AI Summary. `url` may be `null` for AI Summary (client-side only).
 
 ### Explore mode
 
@@ -89,17 +101,38 @@ Includes:
 ```json
 {
   "query_id": "RELIANCE",
-  "source_url": "https://www.screener.in/company/RELIANCE/",
+  "source_url": "https://www.screener.in/company/RELIANCE/consolidated/",
   "summary": "...",
   "ratios": {
-    "Market Cap": "...",
-    "ROCE": "..."
+    "Market Cap": "₹ 18,47,111 Cr.",
+    "Current Price": "₹ 1,365",
+    "Stock P/E": "24.1",
+    "ROCE": "9.69 %",
+    "ROE": "8.40 %"
   },
-  "sales_data": [
-    { "Sales": "..." }
-  ],
+  "derived_ratios": {
+    "Price to Book": 2.11,
+    "Market Cap / Sales": 1.8,
+    "EV / EBITDA (approx)": 12.44
+  },
+  "profit_loss": {
+    "headers": ["", "Mar 2014", "...", "Mar 2025", "TTM"],
+    "rows": [
+      {"metric": "Sales +", "Mar 2014": "433,521", "...": "...", "TTM": "1,024,548"},
+      {"metric": "Net Profit +", "...": "..."}
+    ]
+  },
+  "growth_metrics": {
+    "compounded_sales_growth": {"label": "Compounded Sales Growth", "values": {"10 Years": "10%", "5 Years": "10%", "3 Years": "11%", "TTM": "9%"}}
+  },
+  "shareholding": {
+    "quarterly": { "headers": ["...", "Dec 2025"], "rows": [{"metric": "Promoters +", "Dec 2025": "50.00%"}] }
+  },
+  "documents": {
+    "concalls": [{"period": "Jan 2026", "files": [{"type": "Transcript", "url": "https://..."}, {"type": "PPT", "url": "https://..."}]}]
+  },
   "sitemap_sections": [
-    { "section": "Quarters", "anchor": "#quarters" }
+    {"section": "Quarterly Results", "anchor": "#quarters"}
   ]
 }
 ```
