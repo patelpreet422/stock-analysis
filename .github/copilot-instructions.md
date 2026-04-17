@@ -50,6 +50,49 @@ When the user asks to **analyze a stock** (or uses phrases like "what do you thi
 - `yahoo-data-fetcher` — Fetches real-time stock quotes, historical OHLCV data, and symbol search from Yahoo Finance (via yfinance)
 - `youtube-watcher` — Fetches and reads YouTube video transcripts
 
+## Report Output
+
+- Save final reports to `reports/<SYMBOL>-<YYYY-MM-DD>.md` (e.g., `reports/RELIANCE-2026-04-12.md`)
+- Reports are always Markdown (`.md`), never PDF
+- If a report for the same symbol and date already exists, append a numeric suffix (e.g., `-2`)
+
+## Screener Data: Consolidated vs Standalone
+
+- Default to `--consolidated` for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs)
+- Use standalone only when the user explicitly asks for it or the company has no subsidiaries
+- When in doubt, fetch consolidated — it gives the full picture
+
+## Environment Prerequisites
+
+Skills require the project Python venv. Before first skill invocation in a session, verify the environment:
+
+```bash
+cd /Users/preet/stock-analysis && source .venv/bin/activate
+pip install -q -r .github/skills/screener/requirements.txt -r .github/skills/yahoo-data-fetcher/requirements.txt
+python3 -m playwright install chromium 2>/dev/null || true
+```
+
+If a skill fails with an import error or missing browser, re-run the setup above.
+
+## Shared Agent Rules
+
+These rules apply to **all** agents (portfolio-manager, fundamental, technical, sentiment, macro, micro, critic). They are defined here once — individual agent `.md` files may repeat them for clarity, but this file is the source of truth.
+
+### Action Approval Gate — Sub-Agent Override
+
+When an agent is invoked **directly by the user**, it must ask for explicit approval before performing actions (tool calls, file writes, etc.).
+
+When an agent is invoked **as a sub-agent by the portfolio-manager** (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Sub-agents should execute autonomously and return their report without prompting.
+
+### Terminal vs. Report Link Output
+
+Two contexts, two rules:
+
+- **Live terminal output** (conversational replies, progress messages): print full URLs as plain text — do not use markdown hyperlink syntax like `[text](url)`, because the terminal will not render it.
+- **Saved report artifacts** (`reports/<SYMBOL>-<DATE>.md` and any intermediate `.md` briefings): use proper Markdown hyperlinks `[Source: description](URL)` as required by the Source Attribution rules. `.md` files are rendered by Markdown viewers, not the terminal.
+
+Rule of thumb: if the text is going into an `.md` file, use Markdown links; if it's being spoken to the user in the terminal, use raw URLs.
+
 ## Guidelines
 
 - Always present a balanced view covering both risks and opportunities
