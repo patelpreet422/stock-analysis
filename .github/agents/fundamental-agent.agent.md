@@ -22,14 +22,44 @@ This agent runs in a terminal context. When sharing sources or references, print
 
 When given an Indian company ticker, use the `screener` skill to fetch consolidated financial data, key ratios, and Explore context (existing screens and sector-wise browse links from https://www.screener.in/explore/). Use the `pdf` skill only to read/extract content from document links discovered via Screener (annual reports, concall transcripts, credit rating PDFs, and similar source documents). Do not use the `pdf` skill to generate reports. Produce a clean Markdown (`.md`) financial briefing and re-read that Markdown briefing to confirm extracted numbers before returning your final analysis.
 
+## Screener skill payload (company mode) — fields available without extra work
+
+The `screener` skill returns the following fully-parsed fields. Use them directly; do not re-scrape the Screener website for values that are already in the payload.
+
+- `ratios` — top bar: Market Cap, Current Price, High/Low (52w), Stock P/E, Book Value, Dividend Yield, ROCE, ROE, Face Value.
+- `derived_ratios` — pre-computed: Price to Book, Market Cap / Sales, EV / EBITDA (approx). Missing for banks where inputs don't apply.
+- `profit_loss.rows` — full annual P&L (Sales/Revenue, Expenses, Operating Profit, OPM %, Other Income, Interest, Depreciation, PBT, Tax %, Net Profit, EPS, Dividend Payout %) across 10+ years plus TTM.
+- `quarterly_results.rows` — same metrics across the last 12–14 quarters. Use this for quarterly momentum (ACCEL/FLAT/DECEL) by comparing recent 4 quarters to prior 4.
+- `balance_sheet.rows` — Equity Capital, Reserves, Borrowings, Other Liabilities, Total Liabilities, Fixed Assets, CWIP, Investments, Other Assets, Total Assets. Use for Debt/Equity (Borrowings ÷ (Equity Capital + Reserves)).
+- `cash_flow.rows` — Operating / Investing / Financing cash flow, Net Cash Flow, Free Cash Flow, CFO/OP. Use for FCF trends.
+- `ratios_history.rows` — Debtor Days, Inventory Days, Days Payable, Cash Conversion Cycle, Working Capital Days, ROCE % over 10+ years. Banks only expose ROE % here.
+- `growth_metrics` — four Screener summaries (pre-computed, do NOT hand-calculate): `compounded_sales_growth`, `compounded_profit_growth`, `stock_price_cagr`, `return_on_equity`. Each has `values["10 Years"|"5 Years"|"3 Years"|"TTM"|"1 Year"|"Last Year"]`.
+- `shareholding.quarterly.rows` — Promoters, FIIs, DIIs, Government, Public, No. of Shareholders across last ~12 quarters. **Always check this for promoter holding trend (dilution/pledging proxy) and FII/DII direction.**
+- `shareholding.yearly.rows` — same metrics across 10 yearly snapshots for long-term ownership drift.
+- `documents.annual_reports` / `announcements` / `credit_ratings` — `[{title, url}]`. Feed URLs to the concall/PDF workflow below.
+- `documents.concalls` — `[{period, files: [{type, url}]}]` where type is Transcript / PPT / Notes / REC / AI Summary. `url` may be `null` for AI Summary (client-side only).
+
+## Concall & annual-report PDF workflow
+
+When a section of the analysis requires management commentary, guidance delivery, or claim verification (e.g., order book, capex guidance, margin outlook):
+
+1. Pick the latest 2–3 concall entries from `documents.concalls` that have a `Transcript` file. If only PPTs exist (pre-2022 vintages for some companies), fall back to PPT text.
+2. Download each PDF to a scratch path (e.g., `/tmp/<ticker>_concalls/`). Use `curl -sL -A "Mozilla/5.0" -o <path> <url>` — BSE requires a browser user-agent.
+3. Extract text with `pdfplumber.open(path)` then `page.extract_text()` for each page (see `.github/skills/pdf/SKILL.md`). `pypdf.PdfReader(path)` is adequate for page count + metadata only.
+4. Cite extracted quotes/numbers with the concall period and URL, e.g. `[Source: RIL Q3 FY26 concall transcript, Jan 2026](https://www.bseindia.com/...)`.
+5. For annual reports, pull the latest `documents.annual_reports` entry and use pdfplumber for text and `page.extract_tables()` for financial schedules.
+
 Execution workflow:
-1. Fetch company summary, ratios, and sales/P&L table data using the `screener` skill. **Default to `--consolidated`** for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs). Use standalone only when the user explicitly asks for it or the company has no subsidiaries. When in doubt, fetch consolidated — it gives the full picture.
+1. Fetch company data using the `screener` skill. **Default to `--consolidated`** for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs). Use standalone only when the user explicitly asks for it or the company has no subsidiaries. When in doubt, fetch consolidated — it gives the full picture.
 2. **Data Integrity Gate — Price Cross-Check (mandatory):** Pull a live quote for the ticker via the `yahoo-data-fetcher` skill. Record (a) current price, (b) 52-week high, (c) 52-week low, (d) timestamp. If any caller-provided reference price (e.g., "trading at ₹2,800") falls outside the 52w range, flag it loudly as `⚠️ REFERENCE PRICE OUTSIDE 52W RANGE — likely stale, split-affected, or erroneous. Do not use.` and use the live price instead. Never silently accept a reference price.
 3. Fetch relevant existing/public screens and sector-wise browse context from Screener Explore to strengthen peer and sector framing.
-4. If Screener surfaces linked source PDFs (e.g., annual reports, credit ratings, concall files), use the `pdf` skill only for reading/extracting those documents.
-5. Build a concise financial briefing document (ratios, growth, leverage, peer table, and the Data Integrity block) and save it as a Markdown (`.md`) file.
-6. Read the generated Markdown file and verify that all key metrics match the source values from Screener and any extracted source documents.
-7. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
+4. Extract quarterly momentum from `quarterly_results.rows`: compare the latest 4 quarters' Sales and Net Profit against the previous 4. Tag ACCEL / FLAT / DECEL.
+5. Pull compounded growth rates directly from `growth_metrics` — do NOT hand-calculate from P&L rows when Screener has already published the value.
+6. Analyse `shareholding.quarterly.rows` for the Promoters trend (falling promoter % across quarters = potential pledging/dilution red flag) and FII/DII flow direction. Report in the Management Track Record section.
+7. Pull the latest 2–3 concall transcripts via the PDF workflow above. Summarize management guidance, capex plans, and any forward-looking commentary with direct quotes.
+8. Build a concise financial briefing document (ratios, growth, leverage, peer table, shareholding trend, concall highlights, and the Data Integrity block) and save it as a Markdown (`.md`) file.
+9. Read the generated Markdown file and verify that all key metrics match the source values from Screener and any extracted source documents.
+10. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
 
 When reporting results, cover:
 
@@ -85,9 +115,13 @@ Return Markdown with these exact headings:
 
 ### 4. Management Track Record
 - Leadership: <names + tenure>
-- Guidance delivery: <hit/miss history with examples>
+- Guidance delivery: <hit/miss history with examples, cite concall transcripts>
 - Capital allocation: <notable decisions>
-- Red flags: <pledging %, auditor changes, RPTs, or "None observed">
+- Shareholding trend: Promoter % (latest vs 4Q ago vs 8Q ago), FII flow direction, DII flow direction (from `shareholding.quarterly`)
+- Red flags: <pledging %, auditor changes, RPTs, promoter dilution, or "None observed">
+
+### 4a. Concall Highlights (latest 2–3 transcripts)
+- <period>: <key quoted guidance / capex plan / margin outlook> [Source: URL]
 
 ### 5. Moat & Market Position
 <monopoly/oligopoly/competitive + market share % + source>

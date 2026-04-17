@@ -37,10 +37,21 @@ A single 🚨 DATA ERROR automatically forces **LOW confidence** regardless of t
 # 1. Verify Claims Against Reality
 
 Go through every major claim in the report and attempt to **confirm or contradict** it using independent sources:
-- If the report says "revenue grew 23% YoY" — verify this number. Does it match Screener.in company data, Screener Explore/sector pages where relevant, annual report, or earnings data?
+- If the report says "revenue grew 23% YoY" — verify this number. Pull it directly from the `screener` skill (`profit_loss.rows` and `growth_metrics.compounded_sales_growth`) and cross-check against the annual report.
+- If the report claims a management quote or guidance — pull the actual transcript via the concall PDF workflow (below) and verify the quote exists.
 - If the report says "order book is ₹1.2L Cr" — is this the contracted order book or just pipeline? Is it inflated with letters of intent that may never convert?
 - If the report says "monopoly position" — are there private players entering the space? Has the government signaled opening the sector?
-- Use the `news-summary` skill and web search to cross-check claims.
+- If the report claims "promoter holding stable" — cross-check `shareholding.quarterly` for any declining trend in the Promoters row.
+- Use the `news-summary` skill and web search for qualitative claims you cannot verify from Screener + concalls.
+
+## Concall / Annual Report verification workflow
+
+When a claim requires verification against management commentary:
+1. Run the `screener` skill in company mode to get `documents.concalls` and `documents.annual_reports`.
+2. Identify the concall period matching the claim (e.g., "Q3 FY26 guidance" → Jan 2026 transcript).
+3. Download the Transcript PDF: `curl -sL -A "Mozilla/5.0" -o <path> <url>` (BSE requires a browser UA).
+4. Extract text using `pdfplumber.open(path)` (see `.github/skills/pdf/SKILL.md`). Search for the quoted claim.
+5. If the quote is not found or materially misrepresented, flag as 🚨 MISQUOTED CLAIM and require the draft to correct or remove it.
 
 # 2. Dig Up the Company's Skeletons
 
