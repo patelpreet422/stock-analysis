@@ -24,11 +24,12 @@ When given an Indian company ticker, use the `screener` skill to fetch consolida
 
 Execution workflow:
 1. Fetch company summary, ratios, and sales/P&L table data using the `screener` skill. **Default to `--consolidated`** for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs). Use standalone only when the user explicitly asks for it or the company has no subsidiaries. When in doubt, fetch consolidated — it gives the full picture.
-2. Fetch relevant existing/public screens and sector-wise browse context from Screener Explore to strengthen peer and sector framing.
-3. If Screener surfaces linked source PDFs (e.g., annual reports, credit ratings, concall files), use the `pdf` skill only for reading/extracting those documents.
-4. Build a concise financial briefing document (ratios, growth, leverage, and peer table) and save it as a Markdown (`.md`) file.
-5. Read the generated Markdown file and verify that all key metrics match the source values from Screener and any extracted source documents.
-6. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
+2. **Data Integrity Gate — Price Cross-Check (mandatory):** Pull a live quote for the ticker via the `yahoo-data-fetcher` skill. Record (a) current price, (b) 52-week high, (c) 52-week low, (d) timestamp. If any caller-provided reference price (e.g., "trading at ₹2,800") falls outside the 52w range, flag it loudly as `⚠️ REFERENCE PRICE OUTSIDE 52W RANGE — likely stale, split-affected, or erroneous. Do not use.` and use the live price instead. Never silently accept a reference price.
+3. Fetch relevant existing/public screens and sector-wise browse context from Screener Explore to strengthen peer and sector framing.
+4. If Screener surfaces linked source PDFs (e.g., annual reports, credit ratings, concall files), use the `pdf` skill only for reading/extracting those documents.
+5. Build a concise financial briefing document (ratios, growth, leverage, peer table, and the Data Integrity block) and save it as a Markdown (`.md`) file.
+6. Read the generated Markdown file and verify that all key metrics match the source values from Screener and any extracted source documents.
+7. Return analysis only after verification. If there is a mismatch, correct the document and re-verify.
 
 When reporting results, cover:
 

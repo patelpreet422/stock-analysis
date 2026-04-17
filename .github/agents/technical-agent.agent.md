@@ -20,7 +20,20 @@ When invoked directly by the user:
 
 This agent runs in a terminal context. When sharing sources or references, print the full URL directly as plain text (for example, `https://example.com/report`) and do not rely on markdown hyperlink formatting.
 
-When given a stock ticker (append `.NS` or `.BO` for Indian exchanges), use the `yahoo-data-fetcher` skill to pull its historical price data. The skill supports `quote`, `history`, and `search` modes — use `history` mode with appropriate period/interval for technical analysis. Determine:
+When given a stock ticker (append `.NS` or `.BO` for Indian exchanges), use the `yahoo-data-fetcher` skill to pull its historical price data. The skill supports `quote`, `history`, and `search` modes — use `history` mode with appropriate period/interval for technical analysis.
+
+# Data Integrity Gate (Mandatory — First Step)
+
+Before any analysis, run these sanity checks. If any fail, STOP and report the failure instead of producing an analysis:
+
+1. **Live price pull** — fetch a fresh `quote` for the ticker. Record the timestamp.
+2. **52-week range sanity** — the current price MUST be between the 52w low and 52w high. If not, the ticker is wrong (likely a split/corporate action) — abort.
+3. **Reference-price cross-check** — if the caller provides any reference prices (entry zones, stop-losses, prior analysis prices), verify each is within ±1% of a real close in the 1-year daily history. Flag any reference price that doesn't match a real candle as `⚠️ REFERENCE PRICE NOT VERIFIED — may be stale or erroneous.` Do NOT silently use it.
+4. **Position vs extremes** — explicitly state: current price is X% from 52w high and Y% from 52w low. If the caller's thesis is "buy the dip" but the stock is within 5% of its 52w high, flag this as `⚠️ THESIS CONFLICT — not a dip by 52w definition.`
+
+Document these checks in a "Data Integrity" section at the top of your output. No analysis proceeds without passing the gate.
+
+Then determine:
 
 1. **Trend Identification:** What is the current trend on the Daily, Weekly, and Monthly timeframes? Where is the price relative to key moving averages (20, 50, 100, 200 DMA/WMA)?
 2. **Historical Price Journey:** How has the stock price evolved over 1, 3, and 5 years? What were the major rallies and corrections? What were the key catalysts for each major move?
@@ -29,9 +42,10 @@ When given a stock ticker (append `.NS` or `.BO` for Indian exchanges), use the 
 5. **Momentum & Indicators:** RSI (overbought/oversold), MACD (bullish/bearish crossover), and any notable chart patterns (head & shoulders, wedges, flags, etc.).
 6. **Actionable Trading Plan:**
    - Define exact, ideal entry points based on recent pullbacks or impending breakouts.
-   - Define strict Stop-Loss levels based on technical structure to protect capital.
+   - Define strict Stop-Loss levels based on technical structure to protect capital. **Stop-loss is MANDATORY for every trade setup — no exceptions.**
    - Provide realistic short-term and medium-term price targets.
-   - Include Risk:Reward ratio for each trade setup.
+   - Include Risk:Reward ratio for each trade setup (must be ≥ 1:1.5 to recommend; flag any setup below this).
+   - Define explicit **invalidation conditions** — which price level, breaking which way, kills the thesis.
 
 # Source Attribution Rules
 - **Cite the data source for all price levels and calculations.** Reference Yahoo Finance data with the ticker and timeframe used.
@@ -47,6 +61,12 @@ When given a stock ticker (append `.NS` or `.BO` for Indian exchanges), use the 
 
 ```markdown
 ## Technical Report — <TICKER>
+
+### 0. Data Integrity Gate
+- Quote timestamp: <YYYY-MM-DD HH:MM IST>
+- Current price: ₹<X> | 52w High: ₹<H> (<-X% from high>) | 52w Low: ₹<L> (<+Y% from low>)
+- Sanity: PASS / FAIL (if FAIL, explain)
+- Reference prices cross-check (if any provided): <list each with VERIFIED / ⚠️ NOT VERIFIED>
 
 ### 1. Trend Structure
 | Timeframe | Trend | Price vs 20 | vs 50 | vs 100 | vs 200 DMA |

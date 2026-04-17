@@ -98,3 +98,20 @@ Rule of thumb: if the text is going into an `.md` file, use Markdown links; if i
 - Always present a balanced view covering both risks and opportunities
 - Clearly flag when data is insufficient or unavailable
 - Never present analysis as guaranteed financial advice — include a disclaimer that this is AI-generated research, not professional financial advice
+
+## Data Grounding (Non-Negotiable)
+
+Every analysis must be grounded in live, verifiable data. These rules are enforced by the critic-agent and will hard-fail a report if violated:
+
+1. **Live prices only** — every price (current, entry, stop-loss, target) must come from a fresh `yahoo-data-fetcher` pull with timestamp. Never reuse prices from prior messages/reports without re-verification.
+2. **52-week range is the sanity anchor** — any reference price outside the 52w low–high window is flagged `🚨 DATA ERROR` and the report is rejected until fixed.
+3. **Directional macro calls need quant backing** — short-term predictions ("Monday will gap down", "rally next week") require at least 3 of: India VIX, FII flows, PCR, 10Y yield, USD/INR, Brent, DXY, Nifty-vs-200DMA. Without them, the macro call downgrades to NEUTRAL.
+4. **"Buy the dip" needs an actual dip** — if the stock is within 5% of its 52w high, it is not a discount.
+5. **No stop-loss → no trade** — every trading plan must specify stop-loss, invalidation trigger, and R:R ≥ 1:1.5.
+6. **Sources are mandatory, not decorative** — every factual claim needs a URL citation. Unsourced claims >10% of report → critic downgrades confidence to LOW.
+
+Common historical failure modes these rules prevent:
+- Citing a stock price outside its 52w range (e.g., "Pidilite at ₹2,800" when 52w high was ₹1,575)
+- Calling a market direction ("Monday gap down") on narrative alone with no quant evidence
+- Listing "buy zones" without stop-losses or exit triggers
+- Recommending a stock near its all-time high as a "fear buy"

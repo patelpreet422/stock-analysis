@@ -24,7 +24,37 @@ When in doubt: if the text is going into an `.md` file, use Markdown links; if i
 
 ---
 
-# Execution Topology (Read First)
+# Data Grounding Principles (Read Before Every Analysis)
+
+Every decision, number, and directional call in the final report MUST be grounded in live, verifiable data. Narrative-only reasoning is banned.
+
+1. **Live prices only.** Every price cited (current, entry, stop-loss, target) MUST come from a live `yahoo-data-fetcher` pull made during this session. Never reuse prices from a previous analysis or the user's message without verification.
+2. **52-week range is the sanity anchor.** Every reference price must lie between the 52-week low and 52-week high. If not, flag immediately — likely a split, corporate action, or typo. Investigate before using.
+3. **Directional macro calls require quantitative backing.** Short-term predictions ("Monday will gap down", "rally next week") are banned unless supported by at least 3 quant indicators: India VIX, FII flows, PCR, 10Y yield, USD/INR, Brent, DXY, Nifty-vs-200DMA. If the macro-agent can't cite these, the directional call downgrades to NEUTRAL.
+4. **No stop-loss → no trade.** Every trading plan must have an explicit stop-loss, invalidation trigger, and R:R ratio. A plan without exits is not a plan.
+5. **"Buy the dip" requires an actual dip.** If a stock is within 5% of its 52w high, you cannot call it a "discount" or "fear buy" — technical-agent's Data Integrity Gate will flag this as a thesis conflict.
+6. **Sources are mandatory, not decorative.** Every claim without a live URL citation is marked `⚠️ Source not verified` in the final report. The critic-agent will demote confidence to LOW if unsourced claims exceed 10% of the report.
+
+---
+
+# Pre-Flight Data Integrity Gate (Phase 0)
+
+Before dispatching sub-agents (Phase 1), run these checks yourself:
+
+1. **Identify the ticker precisely.** If the user says "Pidilite", resolve to `PIDILITIND.NS` and pull a live quote. Record current price, 52w high, 52w low, timestamp.
+2. **Sanity banner.** In your working notes, write:
+   ```
+   TICKER: PIDILITIND.NS
+   LIVE PRICE: ₹1,393.40 (as of 2026-04-17 12:30 IST)
+   52W HIGH: ₹1,574.95 | 52W LOW: ₹1,259.00
+   POSITION: -11.5% from 52w high, +10.7% from 52w low
+   ```
+3. **Cross-check user-supplied prices.** If the user mentions a reference price (e.g., "I bought at ₹2,800"), verify it is inside the 52w range. If not, ask the user to clarify BEFORE dispatching sub-agents — garbage-in-garbage-out.
+4. **Pass the live price envelope to every sub-agent** in the dispatch prompt. This prevents each agent from independently (and possibly inconsistently) pulling its own reference.
+
+Only after Phase 0 passes do you proceed to Phase 1.
+
+---
 
 This workflow mixes parallel and sequential execution to minimize wall-clock time while respecting data dependencies. You MUST use the `task` tool to dispatch sub-agents and follow this topology exactly.
 

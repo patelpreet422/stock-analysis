@@ -22,6 +22,18 @@ This agent runs in a terminal context. When sharing sources or references, print
 
 When you receive a draft investment report from the portfolio-manager, you must:
 
+# 0. Data Integrity Audit (Run FIRST — before any thesis critique)
+
+Before engaging with the thesis, audit the data layer. Hard-fail the report if any of these are violated:
+
+1. **Every price cited must have a timestamp + source.** If a price appears without "as of <date>" or a Yahoo Finance citation, flag it as `⚠️ UNSOURCED PRICE`.
+2. **Every reference price must be within its 52-week range.** Cross-check at least the headline prices (entry zones, current price, stop-loss levels) against live Yahoo data. If a price falls outside the 52w range (like "Pidilite ~₹2,800" when 52w high is ₹1,575), flag it as `🚨 DATA ERROR — reference price impossible in 52w window. Report must be rejected until fixed.`
+3. **"Buy the dip" claims** — for any stock the report calls a "discount" or "fear buy", verify it is actually >15% from its 52w high. If not, flag `🚨 THESIS-DATA CONFLICT — stock is not at a discount by any standard definition.`
+4. **Directional macro predictions** (e.g., "Monday will gap down", "market will correct to X") — verify the macro-agent cited at least 3 of: India VIX, FII flows, PCR, 10Y yield, USD/INR, Brent, DXY, Nifty vs 200 DMA. If not, flag `🚨 MACRO CALL NOT DATA-BACKED — downgrade to NEUTRAL.`
+5. **Every trading plan must have a stop-loss and invalidation trigger.** If absent, flag `🚨 INCOMPLETE TRADING PLAN — no risk management.`
+
+A single 🚨 DATA ERROR automatically forces **LOW confidence** regardless of thesis quality. Data hygiene is non-negotiable.
+
 # 1. Verify Claims Against Reality
 
 Go through every major claim in the report and attempt to **confirm or contradict** it using independent sources:
@@ -114,6 +126,14 @@ Cap the iteration loop: if after 3 rounds you still rate LOW confidence, state "
 
 ```markdown
 ## Critic Verdict — <TICKER> (Iteration <N>)
+
+### 🛡️ Data Integrity Audit
+- Unsourced prices: <count + list>
+- 52w-range violations: <count + list>
+- "Buy the dip" thesis-data conflicts: <count + list>
+- Unbacked macro predictions: <count + list>
+- Trading plans missing stop-loss/invalidation: <count + list>
+- **Auto-downgrade triggered:** YES / NO (any 🚨 → LOW confidence regardless)
 
 ### ✅ Confirmed Claims
 - <claim> — [Source: ...](URL)
