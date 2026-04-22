@@ -1,5 +1,5 @@
-# Playwright MCP session artifacts
-.playwright-mcp/
+# Playwright artifacts
+.playwright*/
 
 # Python
 __pycache__/
