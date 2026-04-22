@@ -39,18 +39,22 @@ Every decision, number, and directional call in the final report MUST be grounde
 
 # Pre-Flight Data Integrity Gate (Phase 0)
 
-Before dispatching sub-agents (Phase 1), run these checks yourself:
+Before dispatching sub-agents (Phase 1), build the **canonical MarketSnapshot** (defined in `.github/copilot-instructions.md` → Shared Orchestration Protocol → MarketSnapshot Contract). This is the single source of truth for price across all 5 sub-agents — it eliminates the duplicate-quote / timestamp-skew problem.
 
-1. **Identify the ticker precisely.** If the user says "Pidilite", resolve to `PIDILITIND.NS` and pull a live quote. Record current price, 52w high, 52w low, timestamp.
-2. **Sanity banner.** In your working notes, write:
+1. **Identify the ticker precisely.** If the user says "Pidilite", resolve to `PIDILITIND.NS`.
+2. **Pull ONE live quote** via `yahoo-data-fetcher`. Build the snapshot:
    ```
-   TICKER: PIDILITIND.NS
-   LIVE PRICE: ₹1,393.40 (as of 2026-04-17 12:30 IST)
-   52W HIGH: ₹1,574.95 | 52W LOW: ₹1,259.00
-   POSITION: -11.5% from 52w high, +10.7% from 52w low
+   SNAPSHOT_ID:   PIDILITIND.NS-1745324214
+   TICKER:        PIDILITIND.NS
+   PULLED_AT:     2026-04-22T12:30:14+05:30
+   PRICE:         1393.40
+   HIGH_52W:      1574.95
+   LOW_52W:       1259.00
+   TTL_SECONDS:   300
+   POSITION:      -11.5% from 52w high, +10.7% from 52w low
    ```
-3. **Cross-check user-supplied prices.** If the user mentions a reference price (e.g., "I bought at ₹2,800"), verify it is inside the 52w range. If not, ask the user to clarify BEFORE dispatching sub-agents — garbage-in-garbage-out.
-4. **Pass the live price envelope to every sub-agent** in the dispatch prompt. This prevents each agent from independently (and possibly inconsistently) pulling its own reference.
+3. **Cross-check user-supplied prices.** If the user mentions a reference price (e.g., "I bought at ₹2,800"), verify it is inside the 52w range. If not, ask the user to clarify BEFORE dispatching sub-agents.
+4. **Embed the snapshot in EVERY sub-agent dispatch prompt** (Phase 1) along with the `RUN_CONTEXT: ORCHESTRATED_SUBAGENT` banner. Sub-agents consume the snapshot as canonical and use their own quote pull as a sanity check only — never as a price-replacement.
 
 Only after Phase 0 passes do you proceed to Phase 1.
 
@@ -94,7 +98,7 @@ Phase 4 (cont.): Print repeatable terminal summary (template at bottom of this f
 | `macro-agent` | `claude-sonnet-4.6` | Balanced synthesis across news sources |
 | `micro-agent` | `claude-sonnet-4.6` | Sector/local factor reasoning |
 | `fundamental-agent` | `claude-sonnet-4.6` | Structured data extraction + MD verification |
-| `sentiment-agent` | `claude-sonnet-4.6` | Transcript nuance + aggregation |
+| `sentiment-agent` | `claude-sonnet-4.6` | News + social signal aggregation |
 | `technical-agent` | `gpt-5.4` | Quantitative/numerical price action |
 | `critic-agent` | `claude-opus-4.7` | Heaviest adversarial reasoning — premium model justified |
 
@@ -108,18 +112,33 @@ When the user asks you to analyze a stock:
 
 1. **Dispatch ALL 5 sub-agents in a SINGLE assistant turn** using `task` with `mode: "background"`. Parallel dispatch is non-negotiable — sequential dispatch wastes 4× the wall-clock time.
 
+   Every dispatch prompt MUST begin with the standard banner (see `.github/copilot-instructions.md` → Shared Orchestration Protocol):
+   ```
+   RUN_CONTEXT: ORCHESTRATED_SUBAGENT
+   PARENT_AGENT: portfolio-manager
+   APPROVAL_REQUIRED: false
+   SNAPSHOT_ID: <from Phase 0>
+   <full MarketSnapshot block>
+   ```
+   followed by the ticker and the agent-specific task. The banner is what tells the sub-agent to skip its approval gate and to use the snapshot as canonical.
+
    For each sub-agent, provide:
    - `agent_type`: the agent name (e.g., `macro-agent`)
    - `name`: short identifier (e.g., `macro`, `micro`, `fundamental`, `sentiment`, `technical`)
    - `mode`: `"background"`
    - `model`: as per the table above
-   - `prompt`: ticker symbol + explicit instructions to return output following their "Output Schema" section
+   - `prompt`: banner + ticker + explicit instruction to return output per its strict Output Schema (including the `normalized_score` / `confidence` fields)
 
-2. **Wait for all 5 completion notifications.** Do not read partial results and start Phase 2 early.
+2. **Wait for all 5 completion notifications, with timeout.** Apply the Phase 1 Failure / Timeout / Degradation Policy from the shared protocol:
+   - per-agent timeout: 300s
+   - one cold retry on timeout / malformed schema
+   - if still failing: mark dimension `DEGRADED — INSUFFICIENT DATA`, downgrade overall confidence by one step, proceed
+   - REQUIRED workers (must succeed): `technical-agent`, `fundamental-agent`. If either fails after retry, abort the run with a clear terminal message.
+   - OPTIONAL workers (degrade gracefully): `macro-agent`, `micro-agent`, `sentiment-agent`.
 
-3. **Retrieve results** by calling `read_agent` on each agent_id (can parallelize these reads too).
+3. **Retrieve results** by calling `read_agent` on each agent_id (can parallelize these reads — use `wait: true, timeout: 300` per call).
 
-4. **Keep ALL 5 agent sessions alive** — do not let them complete-and-discard. You will re-use them via `write_agent` in Phase 3b if the critic demands revisions. Keeping sessions preserves each agent's research context (fetched data, URLs, reasoning), making revisions faster and more accurate than a cold respawn.
+4. **Session lifecycle.** Initially keep all 5 sessions alive in case the critic flags re-analysis. After Phase 3a (first critic verdict), terminate sessions for any agent NOT named in the critic's 🔄 list — keep alive only the flagged subset for Phase 3b. This caps token cost and avoids context drift on agents that don't need revision.
 
    > **Important:** Launch all 5 sub-agents in the SAME turn (parallel). Never dispatch sequentially.
 
@@ -141,7 +160,7 @@ If the `fundamental-agent` provides a Markdown briefing file path, read it and c
 Launch the `critic-agent` via `task` with:
 - `mode: "background"` (so it stays idle for follow-ups)
 - `model: "claude-opus-4.7"`
-- `prompt`: the full draft report inline
+- `prompt`: standard banner (`RUN_CONTEXT: ORCHESTRATED_SUBAGENT`, snapshot, etc.) + the full draft report inline + the prior issue ledger if iteration > 1
 
 The critic returns:
 - ✅ Confirmed claims
@@ -149,23 +168,38 @@ The critic returns:
 - 💀 Skeletons found
 - ❓ Unanswered questions
 - 🔄 Recommended re-analysis (per sub-agent)
+- 📋 **Issue ledger** (structured table — see Critic Issue Ledger in shared protocol). Each row carries `issue_id`, `severity`, `owner_agent`, `claim`, `status`. On iteration N+1 the critic MUST reference existing `issue_id`s when re-raising a concern — no silent renumbering.
 - 📊 Confidence: HIGH / MODERATE / LOW
 
-## 3b. Evaluate & Iterate
-- **HIGH confidence:** Incorporate critic findings (especially 💀 Skeletons) into the final report. Proceed to Phase 4.
-- **MODERATE confidence:** Identify which sub-agents the critic flagged in 🔄. Send targeted `write_agent` messages to ONLY those flagged agents (IN PARALLEL in a single assistant turn) with the specific re-analysis question. Example:
+## 3b. Evaluate & Iterate (Issue-Ledger Driven)
+
+You maintain the issue ledger across iterations. On each pass, mark each row `RESOLVED`, `PERSISTENT`, or `DEFERRED` based on the revised draft. Loop logic:
+
+- **No OPEN BLOCKERs** → proceed to Phase 4. Incorporate 💀 Skeletons and any DEFERRED MAJOR/MINOR notes into the final report.
+- **OPEN BLOCKERs exist** → fan out to ONLY the agents named in `owner_agent` for OPEN BLOCKERs. Send targeted `write_agent` messages — in a single assistant turn — citing the specific `issue_id`. Example:
   ```
-  write_agent(fundamental-agent, "Critic flagged the order book conversion rate claim.
-  Verify: what % of FY22 order book converted to revenue by FY25? Cite source.")
-  write_agent(technical-agent, "Critic questions RSI reading. Re-fetch yfinance data
-  for the last 30 sessions and report exact RSI(14) value with timestamp.")
+  write_agent(fundamental-agent, "ISSUE C-001 (BLOCKER): order book conversion rate claim
+  unverified. Verify what % of FY22 order book converted to revenue by FY25. Cite source.")
+  write_agent(technical-agent, "ISSUE C-002 (MAJOR): RSI(14) reading appears stale.
+  Re-fetch yfinance data for last 30 sessions; return exact RSI(14) with timestamp.")
   ```
-  Wait for responses, revise draft, then `write_agent(critic-agent, <revised-draft>)`. Loop.
-- **LOW confidence:** Same as MODERATE but expect to flag 3+ sub-agents. Do NOT proceed until critic returns HIGH or MODERATE-with-all-material-issues-addressed. Cap the loop at **3 iterations**; if still LOW after 3, produce the report with an explicit "⚠️ Critic concerns remain unresolved" banner at the top listing the open issues.
+
+### write_agent / read_agent compose pattern (mandatory)
+
+`write_agent` only **delivers** a message — the agent's response is a separate completion. The orchestrator MUST follow this exact two-turn pattern, otherwise it will read stale state:
+
+1. **Pre-fanout check:** confirm each target agent's status is `idle` (`list_agents`). If running, wait or cold-respawn — never blind-queue.
+2. **Capture last turn index** for each target before writing.
+3. **Turn N (single assistant turn):** parallel `write_agent` calls to all flagged agents.
+4. **Turn N+1 (single assistant turn):** parallel `read_agent(agent_id, wait: true, timeout: 180, since_turn: <captured_index>)` for each. Only act after all responses are in.
+5. Apply the same retry/degrade policy from Phase 1 (one retry on timeout, then degrade).
+6. Revise the draft, then `write_agent(critic-agent, <revised-draft + updated ledger>)` and repeat steps 1–5 for the critic's re-review.
+
+**Iteration cap: 3.** After 3 iterations with OPEN BLOCKERs remaining, ship the report with a top-of-file banner: `⚠️ Unresolved critic concerns: C-001, C-007 — see Issue Ledger appendix.`
 
 ## 3c. Parallelism Discipline
-- In Phase 3b, sub-agent write_agent calls MUST happen in one assistant turn (parallel).
-- The critic's write_agent call (to re-evaluate the revised draft) is SEQUENTIAL — it depends on the sub-agents' responses.
+- In Phase 3b, sub-agent `write_agent` calls MUST happen in one assistant turn (parallel fanout). The follow-up `read_agent` calls also happen in one parallel turn (with `wait: true`).
+- The critic's `write_agent` call (to re-evaluate the revised draft) is SEQUENTIAL — it depends on the sub-agents' responses being collected.
 
 > **The user never sees the draft.** They only see the final report after the critic has signed off.
 
@@ -216,7 +250,7 @@ Present the economic data that affects this company. Draw explicit cause-and-eff
 
 ### Section 4: Market Sentiment — What Others Think (and Why It Matters)
 Present sentiment data with full source attribution:
-- **YouTube analyst opinions:** Video title, creator, URL, and their specific thesis/target (not just "bullish")
+- **Analyst & news pulse:** Headlines from financial news outlets and brokerage notes — specific thesis/target (not just "bullish") with URL
 - **Retail mood:** Reddit/social media data with links — FOMO, panic, or indifference?
 - **Institutional positioning:** FII/DII trends with specific data (% holding changes, bulk deals) and source
 - **Sentiment vs. fundamentals alignment:** Do the numbers justify the mood, or is there a disconnect?
@@ -306,7 +340,7 @@ Explain the verdict by connecting specific data points across all dimensions. Th
 
 # Mandatory Rules
 
-1. **SOURCE EVERYTHING.** Every data point, claim, video reference, or news item MUST include a source link or citation. No exceptions. Format: `[Source: description](URL)` or `📎 Source: description — URL`. If a sub-agent provided a source, pass it through. If a claim has no source, mark it as "⚠️ Source not verified."
+1. **SOURCE EVERYTHING.** Every data point, claim, or news item MUST include a source link or citation. No exceptions. Format: `[Source: description](URL)` or `📎 Source: description — URL`. If a sub-agent provided a source, pass it through. If a claim has no source, mark it as "⚠️ Source not verified."
 
 2. **DATA FIRST, CONCLUSION SECOND.** Present the numbers, then state what they imply. Never start with a conclusion and find data to support it. If the data is mixed, say "the data is mixed" — do not force coherence.
 

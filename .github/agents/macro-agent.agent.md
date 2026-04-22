@@ -14,7 +14,7 @@ When invoked directly by the user:
 - If approval is not explicit, do not perform the action.
 - If approved, execute only the approved scope and report back before asking for the next action.
 
-**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously and return your report without prompting.
+**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously and return your report without prompting. Detect this mode by checking the dispatch prompt for the banner line `RUN_CONTEXT: ORCHESTRATED_SUBAGENT` (machine flag, not freeform interpretation). When that banner is present, the approval gate is bypassed.
 
 # Terminal Link Output Rule
 
@@ -95,8 +95,10 @@ Return Markdown with these exact headings, in this order:
 - <item + magnitude + source>
 
 ### 6. Net Macro Score
-One of: STRONG TAILWIND / TAILWIND / NEUTRAL / HEADWIND / STRONG HEADWIND
-Justification: <one sentence citing the 2-3 most material factors>
+- label:            STRONG TAILWIND / TAILWIND / NEUTRAL / HEADWIND / STRONG HEADWIND
+- normalized_score: <-2 | -1 | 0 | +1 | +2>
+- confidence:       LOW / MEDIUM / HIGH
+- justification:    <one sentence citing the 2-3 most material factors>
 ```
 
 Do NOT include prose outside this schema. Do NOT merge sections. The orchestrator parses these headings.

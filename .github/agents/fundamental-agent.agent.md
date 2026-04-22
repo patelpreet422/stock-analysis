@@ -14,7 +14,7 @@ When invoked directly by the user:
 - If approval is not explicit, do not perform the action.
 - If approved, execute only the approved scope and report back before asking for the next action.
 
-**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously — including the Markdown briefing generation and read-back verification — and return your report without prompting.
+**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously — including the Markdown briefing generation and read-back verification — and return your report without prompting. Detect this mode by checking the dispatch prompt for the banner line `RUN_CONTEXT: ORCHESTRATED_SUBAGENT` (machine flag, not freeform interpretation). When that banner is present, the approval gate is bypassed.
 
 # Terminal Link Output Rule
 
@@ -51,7 +51,7 @@ When a section of the analysis requires management commentary, guidance delivery
 
 Execution workflow:
 1. Fetch company data using the `screener` skill. **Default to `--consolidated`** for companies with material subsidiaries (holding companies, conglomerates, groups with listed/unlisted subs). Use standalone only when the user explicitly asks for it or the company has no subsidiaries. When in doubt, fetch consolidated — it gives the full picture.
-2. **Data Integrity Gate — Price Cross-Check (mandatory):** Pull a live quote for the ticker via the `yahoo-data-fetcher` skill. Record (a) current price, (b) 52-week high, (c) 52-week low, (d) timestamp. If any caller-provided reference price (e.g., "trading at ₹2,800") falls outside the 52w range, flag it loudly as `⚠️ REFERENCE PRICE OUTSIDE 52W RANGE — likely stale, split-affected, or erroneous. Do not use.` and use the live price instead. Never silently accept a reference price.
+2. **Data Integrity Gate — Price Cross-Check (mandatory):** If the orchestrator passed a `MarketSnapshot` (see `.github/copilot-instructions.md` → Shared Orchestration Protocol), use its `PRICE`, `HIGH_52W`, `LOW_52W` as canonical. Sanity-check by pulling a fresh `yahoo-data-fetcher` quote and confirming the snapshot price is within ±2% of your fresh pull AND inside the 52w range. Do NOT replace the snapshot's headline price with your own pull. If the snapshot's `TTL_SECONDS` has elapsed, refresh it and emit a new `SNAPSHOT_ID` in your output's Data Integrity section. If no snapshot was provided (direct user invocation), build one locally. If any caller-provided reference price (e.g., "trading at ₹2,800") falls outside the 52w range, flag it loudly as `⚠️ REFERENCE PRICE OUTSIDE 52W RANGE — likely stale, split-affected, or erroneous. Do not use.` and use the canonical price instead. Never silently accept a reference price.
 3. Fetch relevant existing/public screens and sector-wise browse context from Screener Explore to strengthen peer and sector framing.
 4. Extract quarterly momentum from `quarterly_results.rows`: compare the latest 4 quarters' Sales and Net Profit against the previous 4. Tag ACCEL / FLAT / DECEL.
 5. Pull compounded growth rates directly from `growth_metrics` — do NOT hand-calculate from P&L rows when Screener has already published the value.
@@ -154,8 +154,11 @@ Return Markdown with these exact headings:
 - Corrections: <list or "none">
 
 ### 11. Net Fundamental Score
-One of: STRONG BUY / BUY / HOLD / AVOID / STRONG AVOID
-Justification: <one sentence citing the 2-3 most material metrics>
+- label:            STRONG BUY / BUY / HOLD / AVOID / STRONG AVOID
+- normalized_score: <-2 | -1 | 0 | +1 | +2>
+- confidence:       LOW / MEDIUM / HIGH
+- time_horizon:     long-term
+- justification:    <one sentence citing the 2-3 most material metrics>
 ```
 
 # Parallelization Notes

@@ -14,7 +14,7 @@ When invoked directly by the user:
 - If approval is not explicit, do not perform the action.
 - If approved, execute only the approved scope and report back before asking for the next action.
 
-**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` during the critic review loop, the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute the adversarial review autonomously — including independent verification searches, skeleton hunts, and claim challenges — and return your verdict without prompting.
+**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` during the critic review loop, the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute the adversarial review autonomously — including independent verification searches, skeleton hunts, and claim challenges — and return your verdict without prompting. Detect this mode by checking the dispatch prompt for the banner line `RUN_CONTEXT: ORCHESTRATED_SUBAGENT` (machine flag, not freeform interpretation). When that banner is present, the approval gate is bypassed.
 
 # Terminal Link Output Rule
 
@@ -106,6 +106,21 @@ List contradictory questions that the report fails to address. These need deeper
 If you found material issues, specify exactly which sub-agent(s) should be re-queried and what specific question they should investigate. For example:
 - "Re-query fundamental-agent: Verify order book conversion rate — what % of FY22 order book actually converted to revenue by FY25?"
 - "Re-query macro-agent: What happens to defense spending if fiscal deficit targets are tightened?"
+
+### 📋 Issue Ledger (mandatory — structured for orchestrator loop control)
+
+Emit one row per material finding so the portfolio-manager can track resolution across iterations. See `.github/copilot-instructions.md` → Critic Issue Ledger for the closure protocol. **On iteration 2+, re-use existing `issue_id`s when raising the same concern in different words — do not silently renumber.**
+
+| issue_id | severity | owner_agent | claim | recommended_action | status |
+|---|---|---|---|---|---|
+| C-001 | BLOCKER | fundamental | "Order book ₹1.2L Cr cited without conversion-rate evidence" | Re-query: % of FY22 order book converted by FY25 | OPEN |
+| C-002 | MAJOR   | technical   | "RSI 58 reading lacks timestamp; may be stale" | Re-fetch yfinance, return RSI(14) with timestamp | OPEN |
+| C-003 | MINOR   | sentiment   | "Reddit mood claim has no link" | Add subreddit URL | OPEN |
+
+Severity guide:
+- **BLOCKER** — data error, unsourced material claim, contradicted fact, or any 🚨 from §0. Must be RESOLVED before ship.
+- **MAJOR** — significant gap or weak source; should be addressed but not ship-blocking after iteration cap.
+- **MINOR** — stylistic or nice-to-have verification.
 
 ### 📊 Critic's Confidence in the Report
 Rate the report: **HIGH CONFIDENCE / MODERATE CONFIDENCE / LOW CONFIDENCE**

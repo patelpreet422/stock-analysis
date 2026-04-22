@@ -14,7 +14,7 @@ When invoked directly by the user:
 - If approval is not explicit, do not perform the action.
 - If approved, execute only the approved scope and report back before asking for the next action.
 
-**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously and return your report without prompting.
+**Sub-Agent Override:** When invoked as a sub-agent by the `portfolio-manager` (or any other orchestrating agent), the approval gate is **bypassed**. The user already approved the analysis when they asked for the stock review. Execute autonomously and return your report without prompting. Detect this mode by checking the dispatch prompt for the banner line `RUN_CONTEXT: ORCHESTRATED_SUBAGENT` (machine flag, not freeform interpretation). When that banner is present, the approval gate is bypassed.
 
 # Terminal Link Output Rule
 
@@ -24,12 +24,14 @@ When given a stock ticker (append `.NS` or `.BO` for Indian exchanges), use the 
 
 # Data Integrity Gate (Mandatory — First Step)
 
-Before any analysis, run these sanity checks. If any fail, STOP and report the failure instead of producing an analysis:
+If the orchestrator passed a `MarketSnapshot` (see `.github/copilot-instructions.md` → Shared Orchestration Protocol), the snapshot's `PRICE`, `HIGH_52W`, `LOW_52W` are **canonical** for this run — do NOT replace them with your own pull. Your gate is a sanity check only:
 
-1. **Live price pull** — fetch a fresh `quote` for the ticker. Record the timestamp.
-2. **52-week range sanity** — the current price MUST be between the 52w low and 52w high. If not, the ticker is wrong (likely a split/corporate action) — abort.
+1. **Sanity check vs snapshot.** Pull a fresh `quote` for the ticker and confirm the snapshot's `PRICE` is within ±2% of your fresh pull AND inside the 52w range. If yes, proceed using the snapshot's headline price. If no (or `TTL_SECONDS` has elapsed), refresh the snapshot, emit a new `SNAPSHOT_ID` in your output's "Data Integrity" section so the orchestrator can re-broadcast.
+2. **52-week range sanity** — confirm current price is between snapshot's 52w low and high. If not, the ticker is wrong (likely a split/corporate action) — abort.
 3. **Reference-price cross-check** — if the caller provides any reference prices (entry zones, stop-losses, prior analysis prices), verify each is within ±1% of a real close in the 1-year daily history. Flag any reference price that doesn't match a real candle as `⚠️ REFERENCE PRICE NOT VERIFIED — may be stale or erroneous.` Do NOT silently use it.
 4. **Position vs extremes** — explicitly state: current price is X% from 52w high and Y% from 52w low. If the caller's thesis is "buy the dip" but the stock is within 5% of its 52w high, flag this as `⚠️ THESIS CONFLICT — not a dip by 52w definition.`
+
+If no snapshot is provided (direct user invocation), perform a full fresh pull and build the snapshot locally.
 
 Document these checks in a "Data Integrity" section at the top of your output. No analysis proceeds without passing the gate.
 
@@ -119,8 +121,11 @@ Fibonacci retracement (from <swing> to <swing>): 23.6%=X, 38.2%=X, 50%=X, 61.8%=
 - R:R: 1:X
 
 ### 7. Net Technical Score
-One of: STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL
-Justification: <one sentence>
+- label:            STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL
+- normalized_score: <-2 | -1 | 0 | +1 | +2>
+- confidence:       LOW / MEDIUM / HIGH
+- time_horizon:     swing | positional
+- justification:    <one sentence>
 ```
 
 # Parallelization Notes
